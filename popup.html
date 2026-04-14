@@ -117,7 +117,7 @@
       <label>保險名稱欄位</label>
       <select id="colSel"></select>
     </div>
-    <button class="btn btn-primary w-full mt-3" id="readBtn" onclick="readSheet()">讀取試算表</button>
+    <button class="btn btn-primary w-full mt-3" id="readBtn">讀取試算表</button>
   </div>
 
   <!-- Step 2: Select names -->
@@ -125,8 +125,8 @@
     <div class="count" id="countText"></div>
     <div class="name-list" id="nameList"></div>
     <div class="flex mt-3">
-      <button class="btn btn-outline btn-sm flex-1" onclick="goStep(1)">← 返回</button>
-      <button class="btn btn-primary flex-1" onclick="startJob()">開始批次下載 →</button>
+      <button class="btn btn-outline btn-sm flex-1" id="backBtn">← 返回</button>
+      <button class="btn btn-primary flex-1" id="startBtn">開始批次下載 →</button>
     </div>
   </div>
 
@@ -139,8 +139,8 @@
       <input type="text" id="captchaInput" maxlength="8" placeholder="輸入驗證碼" autocomplete="off" inputmode="numeric">
       <div class="captcha-err" id="capErr"></div>
       <div class="flex mt-2">
-        <button class="btn btn-outline btn-sm flex-1" onclick="skipCurrent()">跳過此筆</button>
-        <button class="btn btn-primary flex-1" id="capSubmitBtn" onclick="submitCaptcha()">確認 →</button>
+        <button class="btn btn-outline btn-sm flex-1" id="skipBtn">跳過此筆</button>
+        <button class="btn btn-primary flex-1" id="capSubmitBtn">確認 →</button>
       </div>
     </div>
     <div class="progress-text" id="progText"></div>
@@ -152,7 +152,7 @@
   <div class="step" id="s4">
     <p style="color:var(--success);font-weight:600;margin-bottom:10px;">✓ 全部完成，PDF 已下載到「下載」資料夾的 保單PDF/ 目錄</p>
     <div id="resultList"></div>
-    <button class="btn btn-outline w-full mt-3" onclick="reset()">重新開始</button>
+    <button class="btn btn-outline w-full mt-3" id="resetBtn">重新開始</button>
   </div>
 </div>
 

@@ -1,3 +1,21 @@
+// ── Wire up buttons (no inline onclick — blocked by MV3 CSP) ─────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('readBtn').addEventListener('click', readSheet);
+  document.getElementById('backBtn').addEventListener('click', () => goStep(1));
+  document.getElementById('startBtn').addEventListener('click', startJob);
+  document.getElementById('skipBtn').addEventListener('click', skipCurrent);
+  document.getElementById('capSubmitBtn').addEventListener('click', submitCaptcha);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+  document.getElementById('sheetUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter') readSheet();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('captchaWrap').style.display !== 'none') {
+      submitCaptcha();
+    }
+  });
+});
+
 // ── Port to background (keeps service worker alive) ───────────────────────────
 const port = chrome.runtime.connect({ name: 'popup' });
 
@@ -62,10 +80,6 @@ function goStep(n) {
 }
 
 // ── Step 1: Read Sheet ────────────────────────────────────────────────────────
-document.getElementById('sheetUrl').addEventListener('keydown', e => {
-  if (e.key === 'Enter') readSheet();
-});
-
 async function readSheet() {
   const url = document.getElementById('sheetUrl').value.trim();
   const errEl = document.getElementById('sheetErr');
@@ -101,7 +115,8 @@ async function readSheet() {
     ).join('');
     document.getElementById('colWrap').style.display = 'block';
     document.getElementById('readBtn').textContent = '下一步 →';
-    document.getElementById('readBtn').onclick = showNameList;
+    document.getElementById('readBtn').removeEventListener('click', readSheet);
+    document.getElementById('readBtn').addEventListener('click', showNameList);
     if (nameIdx >= 0) showNameList();
   } catch (e) {
     errEl.textContent = '讀取失敗：' + e.message; errEl.style.display = 'block';
@@ -120,9 +135,6 @@ function showNameList() {
     </div>`).join('');
 
   document.getElementById('countText').textContent = `共 ${names.length} 筆，全部勾選`;
-
-  // Header checkbox
-  const colIdx2 = parseInt(document.getElementById('colSel').value);
   goStep(2);
 }
 
@@ -154,12 +166,6 @@ function showCaptcha(name, dataUrl, attempt) {
 function hideCaptcha() {
   document.getElementById('captchaWrap').style.display = 'none';
 }
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.getElementById('captchaWrap').style.display !== 'none') {
-    submitCaptcha();
-  }
-});
 
 function submitCaptcha() {
   const val = document.getElementById('captchaInput').value.trim();
