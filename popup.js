@@ -233,11 +233,15 @@ async function processOne(name, attempt = 1) {
   // Register navigation listener BEFORE form submit (no race condition)
   const afterSubmit = waitTabComplete(jobTabId, 30000);
 
-  // Submit form with CAPTCHA (may throw as page navigates — that's OK)
+  // Submit form — click Button1 so ASP.NET __doPostBack fires correctly
+  // (form.submit() bypasses the button's onclick/__EVENTTARGET, server ignores CAPTCHA)
   try {
     await exec(jobTabId, (val) => {
       document.querySelector('input[name="bmpC"]').value = val;
-      document.form1.submit();
+      const btn = document.querySelector('input[name="Button1"]') ||
+                  document.querySelector('input[type="submit"]');
+      if (btn) btn.click();
+      else document.forms[0].submit();
     }, [userInput]);
   } catch { /* navigation started */ }
 
