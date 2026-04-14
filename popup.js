@@ -1,5 +1,9 @@
 // ── Wire up buttons (no inline onclick — blocked by MV3 CSP) ─────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // If a job is in progress, jump to step 3 immediately
+  chrome.storage.local.get('jobActive', d => {
+    if (d.jobActive) goStep(3);
+  });
   document.getElementById('readBtn').addEventListener('click', readSheet);
   document.getElementById('backBtn').addEventListener('click', () => goStep(1));
   document.getElementById('startBtn').addEventListener('click', startJob);

@@ -1,12 +1,20 @@
 // ── Keep service worker alive via open ports ──────────────────────────────────
 const ports = new Set();
+let pendingCaptcha = null; // re-send to popup if it re-opens mid-job
+
 chrome.runtime.onConnect.addListener(port => {
   ports.add(port);
   port.onDisconnect.addListener(() => ports.delete(port));
   port.onMessage.addListener(msg => handlePortMessage(msg));
+  // Re-send pending captcha request if popup reconnects mid-job
+  if (pendingCaptcha) {
+    try { port.postMessage(pendingCaptcha); } catch {}
+  }
 });
 
 function broadcast(msg) {
+  if (msg.type === 'captcha_request') pendingCaptcha = msg;
+  if (msg.type === 'item_done' || msg.type === 'job_done') pendingCaptcha = null;
   for (const p of ports) { try { p.postMessage(msg); } catch {} }
 }
 
@@ -187,10 +195,11 @@ function handlePortMessage(msg) {
 }
 
 async function runJob(names) {
+  chrome.storage.local.set({ jobActive: true });
   broadcast({ type: 'job_started', total: names.length });
 
-  // Open (or reuse) a tab
-  const tab = await chrome.tabs.create({ url: 'https://insprod.tii.org.tw/Query.aspx', active: true });
+  // Open tab in background — don't steal focus from popup
+  const tab = await chrome.tabs.create({ url: 'https://insprod.tii.org.tw/Query.aspx', active: false });
   jobTabId = tab.id;
   await waitForTabLoad(jobTabId);
 
@@ -222,5 +231,6 @@ async function runJob(names) {
 
   chrome.tabs.onRemoved.removeListener(closeListener);
   if (jobTabId) { chrome.tabs.remove(jobTabId); jobTabId = null; }
+  chrome.storage.local.set({ jobActive: false });
   broadcast({ type: 'job_done', results });
 }
