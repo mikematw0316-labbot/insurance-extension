@@ -94,20 +94,51 @@ function startJob() {
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// Event-based: wait for the tab to fire status=complete (register listener FIRST)
+// Hybrid: event-based (primary) + polling fallback
+// Register listener BEFORE starting navigation to avoid race conditions
 function waitTabComplete(tabId, timeout = 30000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(fn);
-      reject(new Error('頁面載入超時'));
-    }, timeout);
-    function fn(tid, info) {
-      if (tid !== tabId || info.status !== 'complete') return;
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
+      clearInterval(poller);
       chrome.tabs.onUpdated.removeListener(fn);
-      setTimeout(resolve, 300); // brief stabilisation
+      setTimeout(resolve, 300);
+    };
+
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        clearInterval(poller);
+        chrome.tabs.onUpdated.removeListener(fn);
+        reject(new Error('頁面載入超時'));
+      }
+    }, timeout);
+
+    // Primary: event listener
+    function fn(tid, info) {
+      if (tid === tabId && info.status === 'complete') finish();
     }
     chrome.tabs.onUpdated.addListener(fn);
+
+    // Fallback: polling every 800ms via chrome.tabs.get
+    const poller = setInterval(async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.status === 'complete') finish();
+      } catch {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          clearInterval(poller);
+          chrome.tabs.onUpdated.removeListener(fn);
+          reject(new Error('查詢視窗已關閉'));
+        }
+      }
+    }, 800);
   });
 }
 
@@ -162,7 +193,9 @@ function skipCurrent() {
 async function processOne(name, attempt = 1) {
   if (!jobTabId) throw new Error('查詢視窗已關閉');
 
+  addLog('  [1] 開啟查詢頁面...', 'info');
   await navAndWait(jobTabId, 'https://insprod.tii.org.tw/Query.aspx');
+  addLog('  [2] 填入關鍵字', 'info');
 
   // Fill keyword
   await exec(jobTabId, (kw) => {
@@ -172,6 +205,7 @@ async function processOne(name, attempt = 1) {
   }, [name]);
 
   // Fetch CAPTCHA image (same session as the tab)
+  addLog('  [3] 載入驗證碼圖片...', 'info');
   const captchaDataUrl = await exec(jobTabId, async () => {
     try {
       const resp = await fetch('/bmp.ashx');
@@ -181,12 +215,14 @@ async function processOne(name, attempt = 1) {
   });
 
   // Show CAPTCHA in popup and wait for user
+  addLog('  [4] 等待驗證碼輸入...', 'info');
   showCaptcha(name, captchaDataUrl, attempt);
   const userInput = await new Promise(res => { captchaResolve = res; });
 
   if (userInput === null) return { name, status: 'skipped', files: [] };
 
   hideCaptcha();
+  addLog('  [5] 送出表單，等待結果頁...', 'info');
 
   // Register navigation listener BEFORE form submit (no race condition)
   const afterSubmit = waitTabComplete(jobTabId, 30000);
@@ -200,16 +236,19 @@ async function processOne(name, attempt = 1) {
   } catch { /* navigation started */ }
 
   await afterSubmit;
+  addLog('  [6] 結果頁載入完成', 'info');
 
   // Check for CAPTCHA error (URL still Query.aspx or Default.aspx)
   const tabAfterSubmit = await chrome.tabs.get(jobTabId).catch(() => { throw new Error('查詢視窗已關閉'); });
   const url = tabAfterSubmit.url || '';
+  addLog(`  URL: ${url.split('/').pop()}`, 'info');
   if (!url.includes('ResultQueryAll')) {
     if (attempt >= 4) return { name, status: 'error', message: '多次驗證碼錯誤', files: [] };
     addLog(`⚠ 驗證碼錯誤，重試第 ${attempt + 1} 次`, 'warn');
     return processOne(name, attempt + 1);
   }
 
+  addLog('  [7] 尋找保單連結...', 'info');
   // Find the latest product link (last = most recent version)
   const productUrl = await exec(jobTabId, () => {
     const skip = ['回首頁','首頁','中心首頁','查詢','回上頁','資安及個資政策','隱私權聲明','違規記錄查詢','連結'];
@@ -220,6 +259,7 @@ async function processOne(name, attempt = 1) {
 
   if (!productUrl) return { name, status: 'not_found', message: '查無保單資料', files: [] };
 
+  addLog('  [8] 開啟保單明細頁...', 'info');
   // Navigate to product detail
   await navAndWait(jobTabId, productUrl);
 
@@ -269,8 +309,19 @@ async function runJob(names) {
   totalNames = names.length;
   setProgress(0, names.length);
 
-  const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+  // Must create the background tab in a normal browser window, NOT in our popup window
+  // (popup-type windows don't support multiple tabs)
+  let targetWindowId;
+  try {
+    const wins = await chrome.windows.getAll({ windowTypes: ['normal'] });
+    if (wins.length) targetWindowId = wins[0].id;
+  } catch {}
+
+  const createOpts = { url: 'about:blank', active: false };
+  if (targetWindowId) createOpts.windowId = targetWindowId;
+  const tab = await chrome.tabs.create(createOpts);
   jobTabId = tab.id;
+  addLog(`ℹ 查詢視窗 ID: ${jobTabId}`, 'info');
 
   // Handle tab closed by user
   const closeListener = (id) => {
