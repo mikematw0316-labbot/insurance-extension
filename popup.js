@@ -94,47 +94,28 @@ function startJob() {
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function getTab(tabId) {
-  try { return await chrome.tabs.get(tabId); }
-  catch { throw new Error('查詢視窗已關閉'); }
+// Event-based: wait for the tab to fire status=complete (register listener FIRST)
+function waitTabComplete(tabId, timeout = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(fn);
+      reject(new Error('頁面載入超時'));
+    }, timeout);
+    function fn(tid, info) {
+      if (tid !== tabId || info.status !== 'complete') return;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(fn);
+      setTimeout(resolve, 300); // brief stabilisation
+    }
+    chrome.tabs.onUpdated.addListener(fn);
+  });
 }
 
-// Navigate to URL and wait until that URL is fully loaded
+// Navigate to URL and wait until fully loaded
 async function navAndWait(tabId, url, timeout = 30000) {
-  const targetPath = new URL(url).pathname.toLowerCase();
+  const p = waitTabComplete(tabId, timeout); // register BEFORE navigation starts
   await chrome.tabs.update(tabId, { url });
-  await sleep(300);
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const tab = await getTab(tabId);
-    const tabPath = (tab.url || '').toLowerCase();
-    if (tab.status === 'complete' && tabPath.includes(targetPath)) {
-      await sleep(400); return;
-    }
-    await sleep(300);
-  }
-  throw new Error('頁面載入超時');
-}
-
-// After form submission: wait until navigation completes (two-phase)
-async function waitAfterSubmit(tabId, prevUrl, timeout = 30000) {
-  await sleep(600); // give form submit time to start navigation
-  const deadline = Date.now() + timeout;
-  // Phase 1: wait for navigation to kick off (status=loading OR URL changed)
-  while (Date.now() < deadline) {
-    const tab = await getTab(tabId);
-    if (tab.status === 'loading' || (tab.url || '') !== prevUrl) break;
-    await sleep(200);
-  }
-  // Phase 2: wait for page to finish loading
-  while (Date.now() < deadline) {
-    const tab = await getTab(tabId);
-    if (tab.status === 'complete' && !(tab.url || '').startsWith('about:')) {
-      await sleep(300); return;
-    }
-    await sleep(300);
-  }
-  throw new Error('頁面載入超時');
+  await p;
 }
 
 async function exec(tabId, func, args = []) {
@@ -207,8 +188,8 @@ async function processOne(name, attempt = 1) {
 
   hideCaptcha();
 
-  // Get current URL before submit (to detect navigation)
-  const prevUrl = await exec(jobTabId, () => location.href);
+  // Register navigation listener BEFORE form submit (no race condition)
+  const afterSubmit = waitTabComplete(jobTabId, 30000);
 
   // Submit form with CAPTCHA (may throw as page navigates — that's OK)
   try {
@@ -218,12 +199,11 @@ async function processOne(name, attempt = 1) {
     }, [userInput]);
   } catch { /* navigation started */ }
 
-  // Wait until URL changes from Query.aspx to results
-  await waitAfterSubmit(jobTabId, prevUrl);
+  await afterSubmit;
 
   // Check for CAPTCHA error (URL still Query.aspx or Default.aspx)
-  const tab = await getTab(jobTabId);
-  const url = tab.url || '';
+  const tabAfterSubmit = await chrome.tabs.get(jobTabId).catch(() => { throw new Error('查詢視窗已關閉'); });
+  const url = tabAfterSubmit.url || '';
   if (!url.includes('ResultQueryAll')) {
     if (attempt >= 4) return { name, status: 'error', message: '多次驗證碼錯誤', files: [] };
     addLog(`⚠ 驗證碼錯誤，重試第 ${attempt + 1} 次`, 'warn');
