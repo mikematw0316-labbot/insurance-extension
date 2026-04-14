@@ -304,7 +304,7 @@ async function processOne(name, attempt = 1) {
     if (!urls.length) { files.push({ label, status: 'not_found' }); continue; }
     for (let i = 0; i < urls.length; i++) {
       const suffix = urls.length > 1 ? `_${i + 1}` : '';
-      const filename = `保單PDF/${safe}/${safe}_${label}${suffix}.pdf`;
+      const filename = `保單PDF/${safe}_${label}${suffix}.pdf`;
       await chrome.downloads.download({ url: urls[i], filename, conflictAction: 'overwrite' });
       files.push({ label, status: 'ok', filename: `${safe}_${label}${suffix}.pdf` });
     }
