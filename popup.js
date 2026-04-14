@@ -204,13 +204,19 @@ async function processOne(name, attempt = 1) {
     if (vis) vis.value = kw;
   }, [name]);
 
-  // Fetch CAPTCHA image (same session as the tab)
-  addLog('  [3] 載入驗證碼圖片...', 'info');
-  const captchaDataUrl = await exec(jobTabId, async () => {
+  // Get CAPTCHA from the img already on the page (do NOT re-fetch bmp.ashx —
+  // each new request generates a new CAPTCHA and invalidates the old one)
+  addLog('  [3] 讀取驗證碼圖片...', 'info');
+  const captchaDataUrl = await exec(jobTabId, () => {
     try {
-      const resp = await fetch('/bmp.ashx');
-      const blob = await resp.blob();
-      return await new Promise(res => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(blob); });
+      const img = document.querySelector('#Image1') ||
+                  document.querySelector('img[src*="bmp.ashx"]');
+      if (!img || !img.complete) return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
     } catch { return null; }
   });
 
