@@ -92,18 +92,43 @@ function startJob() {
 }
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
-function waitForTabLoad(tabId, timeout = 30000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(fn); reject(new Error('頁面載入超時')); }, timeout);
-    const fn = (id, info) => {
-      if (id === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(fn);
-        clearTimeout(timer);
-        setTimeout(resolve, 500);
-      }
-    };
-    chrome.tabs.onUpdated.addListener(fn);
-  });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function getTab(tabId) {
+  try { return await chrome.tabs.get(tabId); }
+  catch { throw new Error('查詢視窗已關閉'); }
+}
+
+// Navigate to URL and wait until that URL is fully loaded
+async function navAndWait(tabId, url, timeout = 30000) {
+  const targetPath = new URL(url).pathname.toLowerCase();
+  await chrome.tabs.update(tabId, { url });
+  await sleep(300);
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const tab = await getTab(tabId);
+    const tabPath = (tab.url || '').toLowerCase();
+    if (tab.status === 'complete' && tabPath.includes(targetPath)) {
+      await sleep(400); return;
+    }
+    await sleep(300);
+  }
+  throw new Error('頁面載入超時');
+}
+
+// After form submission: wait until URL changes and page is complete
+async function waitAfterSubmit(tabId, prevUrl, timeout = 30000) {
+  await sleep(500); // give form submit time to start navigation
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const tab = await getTab(tabId);
+    const url = tab.url || '';
+    if (tab.status === 'complete' && url !== prevUrl && !url.startsWith('about:')) {
+      await sleep(400); return;
+    }
+    await sleep(300);
+  }
+  throw new Error('頁面載入超時');
 }
 
 async function exec(tabId, func, args = []) {
@@ -150,8 +175,7 @@ function skipCurrent() {
 async function processOne(name, attempt = 1) {
   if (!jobTabId) throw new Error('查詢視窗已關閉');
 
-  await chrome.tabs.update(jobTabId, { url: 'https://insprod.tii.org.tw/Query.aspx' });
-  await waitForTabLoad(jobTabId);
+  await navAndWait(jobTabId, 'https://insprod.tii.org.tw/Query.aspx');
 
   // Fill keyword
   await exec(jobTabId, (kw) => {
@@ -177,16 +201,23 @@ async function processOne(name, attempt = 1) {
 
   hideCaptcha();
 
-  // Submit form with CAPTCHA
-  await exec(jobTabId, (val) => {
-    document.querySelector('input[name="bmpC"]').value = val;
-    document.form1.submit();
-  }, [userInput]);
+  // Get current URL before submit (to detect navigation)
+  const prevUrl = await exec(jobTabId, () => location.href);
 
-  await waitForTabLoad(jobTabId);
+  // Submit form with CAPTCHA (may throw as page navigates — that's OK)
+  try {
+    await exec(jobTabId, (val) => {
+      document.querySelector('input[name="bmpC"]').value = val;
+      document.form1.submit();
+    }, [userInput]);
+  } catch { /* navigation started */ }
 
-  // Check for CAPTCHA error (page back to Query.aspx)
-  const url = await exec(jobTabId, () => location.href);
+  // Wait until URL changes from Query.aspx to results
+  await waitAfterSubmit(jobTabId, prevUrl);
+
+  // Check for CAPTCHA error (URL still Query.aspx or Default.aspx)
+  const tab = await getTab(jobTabId);
+  const url = tab.url || '';
   if (!url.includes('ResultQueryAll')) {
     if (attempt >= 4) return { name, status: 'error', message: '多次驗證碼錯誤', files: [] };
     addLog(`⚠ 驗證碼錯誤，重試第 ${attempt + 1} 次`, 'warn');
@@ -204,8 +235,7 @@ async function processOne(name, attempt = 1) {
   if (!productUrl) return { name, status: 'not_found', message: '查無保單資料', files: [] };
 
   // Navigate to product detail
-  await chrome.tabs.update(jobTabId, { url: productUrl });
-  await waitForTabLoad(jobTabId);
+  await navAndWait(jobTabId, productUrl);
 
   // Extract section label → PDF URL mapping
   const pdfMap = await exec(jobTabId, () => {
@@ -265,7 +295,7 @@ async function runJob(names) {
   };
   chrome.tabs.onRemoved.addListener(closeListener);
 
-  await waitForTabLoad(jobTabId);
+  await navAndWait(jobTabId, 'https://insprod.tii.org.tw/Query.aspx');
 
   const results = [];
   for (let i = 0; i < names.length; i++) {
