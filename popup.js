@@ -116,15 +116,21 @@ async function navAndWait(tabId, url, timeout = 30000) {
   throw new Error('頁面載入超時');
 }
 
-// After form submission: wait until URL changes and page is complete
+// After form submission: wait until navigation completes (two-phase)
 async function waitAfterSubmit(tabId, prevUrl, timeout = 30000) {
-  await sleep(500); // give form submit time to start navigation
+  await sleep(600); // give form submit time to start navigation
   const deadline = Date.now() + timeout;
+  // Phase 1: wait for navigation to kick off (status=loading OR URL changed)
   while (Date.now() < deadline) {
     const tab = await getTab(tabId);
-    const url = tab.url || '';
-    if (tab.status === 'complete' && url !== prevUrl && !url.startsWith('about:')) {
-      await sleep(400); return;
+    if (tab.status === 'loading' || (tab.url || '') !== prevUrl) break;
+    await sleep(200);
+  }
+  // Phase 2: wait for page to finish loading
+  while (Date.now() < deadline) {
+    const tab = await getTab(tabId);
+    if (tab.status === 'complete' && !(tab.url || '').startsWith('about:')) {
+      await sleep(300); return;
     }
     await sleep(300);
   }
@@ -283,7 +289,7 @@ async function runJob(names) {
   totalNames = names.length;
   setProgress(0, names.length);
 
-  const tab = await chrome.tabs.create({ url: 'https://insprod.tii.org.tw/Query.aspx', active: false });
+  const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
   jobTabId = tab.id;
 
   // Handle tab closed by user
@@ -294,8 +300,6 @@ async function runJob(names) {
     }
   };
   chrome.tabs.onRemoved.addListener(closeListener);
-
-  await navAndWait(jobTabId, 'https://insprod.tii.org.tw/Query.aspx');
 
   const results = [];
   for (let i = 0; i < names.length; i++) {
