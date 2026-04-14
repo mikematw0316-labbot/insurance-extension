@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "保單PDF批次下載",
+  "version": "1.0",
+  "description": "從 Google Sheet 批次下載保險事業發展中心的保單 PDF（商品內容說明／保單條款／費率）",
+  "permissions": [
+    "tabs",
+    "downloads",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://insprod.tii.org.tw/*",
+    "https://docs.google.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}

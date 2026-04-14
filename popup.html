@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>保單PDF批次下載</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --primary: #4f9cf9; --success: #4caf79; --error: #e05252; --warn: #e0a030;
+    --text: #e8eaf0; --muted: #6b7080; --radius: 8px;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px; width: 420px; min-height: 300px;
+  }
+  .wrap { padding: 16px; }
+  h1 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+  .sub { color: var(--muted); font-size: 11px; margin-bottom: 16px; }
+
+  /* Steps */
+  .step { display: none; }
+  .step.active { display: block; }
+
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+  input[type="text"], select {
+    width: 100%; background: #080a10; border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 8px 10px;
+    font-size: 12px; outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--primary); }
+  select { cursor: pointer; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: 8px 16px; border-radius: var(--radius); font-size: 12px;
+    font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s;
+  }
+  .btn:hover:not(:disabled) { opacity: 0.82; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+  .w-full { width: 100%; }
+  .mt-2 { margin-top: 8px; }
+  .mt-3 { margin-top: 12px; }
+  .flex { display: flex; gap: 8px; }
+  .flex-1 { flex: 1; }
+
+  /* Error */
+  .err-msg { color: var(--error); font-size: 11px; margin-top: 6px; }
+
+  /* Name list */
+  .name-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 8px; }
+  .name-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  .name-item:last-child { border-bottom: none; }
+  .name-item label { margin: 0; color: var(--text); cursor: pointer; font-size: 12px; flex: 1; }
+  .count { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* CAPTCHA section */
+  .captcha-box {
+    background: var(--surface); border: 1px solid var(--primary); border-radius: var(--radius);
+    padding: 14px; margin-bottom: 12px;
+  }
+  .captcha-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .captcha-hint { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  #captchaImg {
+    display: block; background: #fff; border-radius: 4px; padding: 3px;
+    margin-bottom: 10px; max-width: 100%;
+  }
+  #captchaInput {
+    font-size: 20px; letter-spacing: 8px; font-weight: 700;
+    text-align: center; background: #080a10; border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 8px; width: 100%; outline: none;
+  }
+  #captchaInput:focus { border-color: var(--primary); }
+  .captcha-err { color: var(--error); font-size: 11px; margin-top: 5px; text-align: center; }
+
+  /* Progress */
+  .progress-bar-wrap { background: #11141f; border-radius: 99px; height: 6px; margin: 8px 0; }
+  .progress-bar { height: 100%; background: var(--primary); border-radius: 99px; transition: width 0.3s; }
+  .progress-text { font-size: 11px; color: var(--muted); }
+
+  /* Log */
+  .log { background: #080a10; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-family: monospace; font-size: 11px; max-height: 130px; overflow-y: auto; margin-top: 10px; }
+  .log-line { padding: 1px 0; }
+  .log-ok { color: var(--success); }
+  .log-err { color: var(--error); }
+  .log-warn { color: var(--warn); }
+  .log-info { color: var(--muted); }
+
+  /* Results */
+  .result-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .result-item:last-child { border-bottom: none; }
+  .result-name { font-size: 12px; font-weight: 600; }
+  .result-files { font-size: 11px; margin-top: 2px; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: 600; margin-right: 4px; }
+  .badge-ok { background: #1e3a2a; color: var(--success); }
+  .badge-err { background: #3a1e1e; color: var(--error); }
+  .badge-skip { background: #222; color: var(--muted); }
+  .badge-warn { background: #3a2e1a; color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🗂 保單PDF批次下載</h1>
+  <p class="sub">從 Google Sheet 批次下載保險事業發展中心保單</p>
+
+  <!-- Step 1: Sheet URL -->
+  <div class="step active" id="s1">
+    <label>Google Sheet 網址</label>
+    <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+    <div id="sheetErr" class="err-msg" style="display:none"></div>
+    <div id="colWrap" style="display:none" class="mt-2">
+      <label>保險名稱欄位</label>
+      <select id="colSel"></select>
+    </div>
+    <button class="btn btn-primary w-full mt-3" id="readBtn" onclick="readSheet()">讀取試算表</button>
+  </div>
+
+  <!-- Step 2: Select names -->
+  <div class="step" id="s2">
+    <div class="count" id="countText"></div>
+    <div class="name-list" id="nameList"></div>
+    <div class="flex mt-3">
+      <button class="btn btn-outline btn-sm flex-1" onclick="goStep(1)">← 返回</button>
+      <button class="btn btn-primary flex-1" onclick="startJob()">開始批次下載 →</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Processing -->
+  <div class="step" id="s3">
+    <div id="captchaWrap" class="captcha-box" style="display:none">
+      <div class="captcha-name" id="capInsName"></div>
+      <div class="captcha-hint" id="capProgress"></div>
+      <img id="captchaImg" alt="驗證碼">
+      <input type="text" id="captchaInput" maxlength="8" placeholder="輸入驗證碼" autocomplete="off" inputmode="numeric">
+      <div class="captcha-err" id="capErr"></div>
+      <div class="flex mt-2">
+        <button class="btn btn-outline btn-sm flex-1" onclick="skipCurrent()">跳過此筆</button>
+        <button class="btn btn-primary flex-1" id="capSubmitBtn" onclick="submitCaptcha()">確認 →</button>
+      </div>
+    </div>
+    <div class="progress-text" id="progText"></div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progBar" style="width:0%"></div></div>
+    <div class="log" id="logBox"></div>
+  </div>
+
+  <!-- Step 4: Done -->
+  <div class="step" id="s4">
+    <p style="color:var(--success);font-weight:600;margin-bottom:10px;">✓ 全部完成，PDF 已下載到「下載」資料夾的 保單PDF/ 目錄</p>
+    <div id="resultList"></div>
+    <button class="btn btn-outline w-full mt-3" onclick="reset()">重新開始</button>
+  </div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
