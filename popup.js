@@ -273,7 +273,7 @@ async function processOne(name, attempt = 1) {
   // Navigate to product detail
   await navAndWait(jobTabId, productUrl);
 
-  // Extract section label → PDF URL mapping
+  // Extract section label → PDF URL mapping (deduplicated)
   const pdfMap = await exec(jobTabId, () => {
     const result = {};
     let label = null;
@@ -282,7 +282,12 @@ async function processOne(name, attempt = 1) {
       if (cell) { label = cell.textContent.trim().replace(/\s+/g, ' '); continue; }
       if (label) {
         const links = [...row.querySelectorAll('a[href*="Open2.ashx"]')];
-        if (links.length) { result[label] = result[label] || []; links.forEach(a => result[label].push(a.href)); }
+        if (links.length) {
+          result[label] = result[label] || [];
+          links.forEach(a => {
+            if (!result[label].includes(a.href)) result[label].push(a.href);
+          });
+        }
       }
     }
     return result;
